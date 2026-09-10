@@ -7,12 +7,14 @@ import android.media.MediaFormat
 import android.net.Uri
 import android.util.Log
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
  * Decodes various audio formats (MP3, AAC/M4A, WAV, OGG, FLAC, MP4/3GP audio tracks)
- * from Android content URIs into 16 kHz 16-bit Mono PCM samples for offline STT.
+ * from Android content URIs or local files into 16 kHz 16-bit Mono PCM samples for offline STT.
  */
 object AudioFileDecoder {
     private const val TAG = "AudioFileDecoder"
@@ -25,6 +27,220 @@ object AudioFileDecoder {
         val originalSampleRate: Int,
         val originalChannels: Int
     )
+
+    /**
+     * Writes 16-bit PCM samples into a standard RIFF/WAVE file header + data on disk.
+     */
+    fun writeWavFile(
+        pcmSamples: ShortArray,
+        outputFile: File,
+        sampleRate: Int = 16000,
+        channels: Int = 1
+    ) {
+        val byteRate = sampleRate * channels * 2
+        val totalAudioLen = pcmSamples.size * 2
+        val totalDataLen = totalAudioLen + 36
+
+        FileOutputStream(outputFile).use { out ->
+            val header = ByteArray(44)
+            // RIFF chunk descriptor
+            header[0] = 'R'.code.toByte()
+            header[1] = 'I'.code.toByte()
+            header[2] = 'F'.code.toByte()
+            header[3] = 'F'.code.toByte()
+            header[4] = (totalDataLen and 0xff).toByte()
+            header[5] = ((totalDataLen shr 8) and 0xff).toByte()
+            header[6] = ((totalDataLen shr 16) and 0xff).toByte()
+            header[7] = ((totalDataLen shr 24) and 0xff).toByte()
+            header[8] = 'W'.code.toByte()
+            header[9] = 'A'.code.toByte()
+            header[10] = 'V'.code.toByte()
+            header[11] = 'E'.code.toByte()
+            // 'fmt ' sub-chunk
+            header[12] = 'f'.code.toByte()
+            header[13] = 'm'.code.toByte()
+            header[14] = 't'.code.toByte()
+            header[15] = ' '.code.toByte()
+            header[16] = 16 // Subchunk1Size for PCM
+            header[17] = 0
+            header[18] = 0
+            header[19] = 0
+            header[20] = 1 // AudioFormat 1 = PCM
+            header[21] = 0
+            header[22] = channels.toByte()
+            header[23] = 0
+            header[24] = (sampleRate and 0xff).toByte()
+            header[25] = ((sampleRate shr 8) and 0xff).toByte()
+            header[26] = ((sampleRate shr 16) and 0xff).toByte()
+            header[27] = ((sampleRate shr 24) and 0xff).toByte()
+            header[28] = (byteRate and 0xff).toByte()
+            header[29] = ((byteRate shr 8) and 0xff).toByte()
+            header[30] = ((byteRate shr 16) and 0xff).toByte()
+            header[31] = ((byteRate shr 24) and 0xff).toByte()
+            header[32] = (channels * 2).toByte() // BlockAlign
+            header[33] = 0
+            header[34] = 16 // BitsPerSample
+            header[35] = 0
+            // 'data' sub-chunk
+            header[36] = 'd'.code.toByte()
+            header[37] = 'a'.code.toByte()
+            header[38] = 't'.code.toByte()
+            header[39] = 'a'.code.toByte()
+            header[40] = (totalAudioLen and 0xff).toByte()
+            header[41] = ((totalAudioLen shr 8) and 0xff).toByte()
+            header[42] = ((totalAudioLen shr 16) and 0xff).toByte()
+            header[43] = ((totalAudioLen shr 24) and 0xff).toByte()
+
+            out.write(header, 0, 44)
+
+            val byteBuf = ByteBuffer.allocate(pcmSamples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+            for (sample in pcmSamples) {
+                byteBuf.putShort(sample)
+            }
+            out.write(byteBuf.array())
+            out.flush()
+        }
+    }
+
+    /**
+     * Decodes a local audio file (MP3, WAV, M4A, AAC, etc.) into 16kHz mono PCM.
+     */
+    fun decodeAudioFile(
+        file: File,
+        onProgress: (Float) -> Unit = {}
+    ): DecodedAudio {
+        if (!file.exists() || file.length() == 0L) {
+            throw IllegalArgumentException("Audio file does not exist or is empty: ${file.absolutePath}")
+        }
+
+        // Fast path for WAV files
+        if (file.name.endsWith(".wav", ignoreCase = true) && file.length() >= 44) {
+            try {
+                val direct = decodeWavDirect(file)
+                if (direct != null && direct.samples.isNotEmpty()) {
+                    onProgress(0.5f)
+                    return direct
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Direct WAV decoding failed, falling back to MediaCodec", e)
+            }
+        }
+
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(file.absolutePath)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting data source for file: ${file.absolutePath}", e)
+            throw IllegalArgumentException("Could not open audio file: ${e.localizedMessage}")
+        }
+        return decodeWithExtractor(extractor, onProgress)
+    }
+
+    /**
+     * Direct RIFF/WAV parser extracting PCM samples cleanly.
+     */
+    fun decodeWavDirect(file: File): DecodedAudio? {
+        val bytes = file.readBytes()
+        if (bytes.size < 44) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+
+        // Check RIFF header
+        val riff = ByteArray(4)
+        buffer.get(riff)
+        if (String(riff) != "RIFF") return null
+
+        buffer.getInt() // skip file size
+        val wave = ByteArray(4)
+        buffer.get(wave)
+        if (String(wave) != "WAVE") return null
+
+        var channels = 1
+        var sampleRate = 16000
+        var bitsPerSample = 16
+        var pcmBytes: ByteArray? = null
+
+        while (buffer.remaining() >= 8) {
+            val chunkIdBytes = ByteArray(4)
+            buffer.get(chunkIdBytes)
+            val chunkId = String(chunkIdBytes)
+            val chunkSize = buffer.getInt()
+
+            if (chunkSize < 0 || chunkSize > buffer.remaining()) break
+
+            when (chunkId) {
+                "fmt " -> {
+                    buffer.getShort() // formatTag (1 = PCM)
+                    channels = buffer.getShort().toInt()
+                    sampleRate = buffer.getInt()
+                    buffer.getInt() // byteRate
+                    buffer.getShort() // blockAlign
+                    bitsPerSample = buffer.getShort().toInt()
+                    val extra = chunkSize - 16
+                    if (extra > 0 && extra <= buffer.remaining()) {
+                        buffer.position(buffer.position() + extra)
+                    }
+                }
+                "data" -> {
+                    val data = ByteArray(chunkSize)
+                    buffer.get(data)
+                    pcmBytes = data
+                    break
+                }
+                else -> {
+                    buffer.position(buffer.position() + chunkSize)
+                }
+            }
+        }
+
+        val rawPcm = pcmBytes ?: return null
+        if (bitsPerSample != 16) return null
+
+        val shortBuf = ByteBuffer.wrap(rawPcm).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val decodedShorts = ShortArray(shortBuf.remaining())
+        shortBuf.get(decodedShorts)
+
+        // Mono downmix
+        val monoShorts = if (channels > 1) {
+            val monoLength = decodedShorts.size / channels
+            val mono = ShortArray(monoLength)
+            for (i in 0 until monoLength) {
+                var sum = 0
+                for (ch in 0 until channels) {
+                    sum += decodedShorts[i * channels + ch]
+                }
+                mono[i] = (sum / channels).coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+            }
+            mono
+        } else {
+            decodedShorts
+        }
+
+        // Resample to 16000 Hz if necessary
+        val resampledShorts = if (sampleRate != TARGET_SAMPLE_RATE && sampleRate > 0) {
+            val ratio = TARGET_SAMPLE_RATE.toDouble() / sampleRate.toDouble()
+            val targetLength = (monoShorts.size * ratio).toInt()
+            val resampled = ShortArray(targetLength)
+            for (i in 0 until targetLength) {
+                val origIdx = i / ratio
+                val left = origIdx.toInt()
+                val right = (left + 1).coerceAtMost(monoShorts.size - 1)
+                val frac = origIdx - left
+                val sample = ((1.0 - frac) * monoShorts[left] + frac * monoShorts[right]).toInt()
+                resampled[i] = sample.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+            }
+            resampled
+        } else {
+            monoShorts
+        }
+
+        val durationMs = (resampledShorts.size * 1000L) / TARGET_SAMPLE_RATE
+        return DecodedAudio(
+            samples = resampledShorts,
+            durationMs = durationMs,
+            originalSampleRate = sampleRate,
+            originalChannels = channels
+        )
+    }
 
     /**
      * Extracts and decodes audio from a content Uri into a 16kHz mono 16-bit PCM ShortArray.
@@ -41,6 +257,13 @@ object AudioFileDecoder {
             Log.e(TAG, "Error setting data source for URI: $uri", e)
             throw IllegalArgumentException("Could not open audio file: ${e.localizedMessage}")
         }
+        return decodeWithExtractor(extractor, onProgress)
+    }
+
+    private fun decodeWithExtractor(
+        extractor: MediaExtractor,
+        onProgress: (Float) -> Unit
+    ): DecodedAudio {
 
         var audioTrackIndex = -1
         var format: MediaFormat? = null

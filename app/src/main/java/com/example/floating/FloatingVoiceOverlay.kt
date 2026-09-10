@@ -17,20 +17,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
@@ -38,7 +31,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,11 +41,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.service.FloatingVoiceTypingService
+import kotlin.math.hypot
 
 // Sleek modern dark aesthetic matching Kazalbrur STT
 private val FloatingSurface = Color(0xFF1E1E2E)
@@ -68,11 +60,12 @@ private val TextMuted = Color(0xFFBAC2DE)
 @Composable
 fun FloatingVoiceOverlay(
     context: Context,
-    onCloseClick: () -> Unit
+    onCloseClick: () -> Unit,
+    onDragStart: () -> Unit = {},
+    onDrag: (dx: Float, dy: Float) -> Unit = { _, _ -> },
+    onDragEnd: () -> Unit = {}
 ) {
     val uiState by FloatingVoiceController.uiState.collectAsState()
-    val statusMessage by FloatingVoiceController.statusMessage.collectAsState()
-    val livePreview by FloatingVoiceController.livePreviewText.collectAsState()
     val rmsLevel by FloatingVoiceController.rmsLevel.collectAsState()
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -87,7 +80,6 @@ fun FloatingVoiceOverlay(
     )
 
     val isRecording = uiState == FloatingUiState.RECORDING
-    val isProcessing = uiState == FloatingUiState.PROCESSING || uiState == FloatingUiState.INSERTING
 
     val buttonBgColor by animateColorAsState(
         targetValue = when (uiState) {
@@ -99,45 +91,46 @@ fun FloatingVoiceOverlay(
         label = "btn_bg"
     )
 
-    Surface(
-        color = Color.Transparent,
-        modifier = Modifier.padding(6.dp)
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            // Live Preview or Status Pill if active
-            if (isRecording || isProcessing || !statusMessage.isNullOrBlank() || livePreview.isNotBlank()) {
-                Box(
-                    modifier = Modifier
-                        .padding(bottom = 6.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(FloatingSurface.copy(alpha = 0.95f))
-                        .border(1.dp, FloatingBorder, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                        .widthIn(max = 200.dp)
-                ) {
-                    val displayText = when {
-                        livePreview.isNotBlank() -> livePreview
-                        !statusMessage.isNullOrBlank() -> statusMessage ?: ""
-                        isRecording -> "শুনছি... কথা বলুন"
-                        isProcessing -> "প্রক্রিয়াকরণ..."
-                        else -> ""
-                    }
+    val handleOrbClick = {
+        when (uiState) {
+            FloatingUiState.RECORDING -> {
+                FloatingVoiceTypingService.stopRecording(context)
+            }
+            FloatingUiState.IDLE, FloatingUiState.ERROR -> {
+                val hasAudioPermission = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
 
-                    Text(
-                        text = displayText,
-                        color = TextWhite,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                if (!hasAudioPermission) {
+                    Toast.makeText(
+                        context,
+                        "মাইক্রোফোন পারমিশন প্রয়োজন। অ্যাপটি ওপেন করে অনুমতি দিন।",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    val intent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    }
+                    context.startActivity(intent)
+                } else {
+                    FloatingVoiceTypingService.startRecording(context)
                 }
             }
+            FloatingUiState.PROCESSING, FloatingUiState.INSERTING -> {
+                // Busy processing, no-op
+            }
+        }
+    }
 
-            // Floating Circular Mic Orb
+    Surface(
+        color = Color.Transparent,
+        modifier = Modifier.padding(4.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(62.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            // Draggable & Clickable Floating Circular Mic Orb
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -151,40 +144,13 @@ fun FloatingVoiceOverlay(
                             )
                         )
                     )
-                    .border(1.5.dp, buttonBgColor.copy(alpha = 0.8f), CircleShape)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        when (uiState) {
-                            FloatingUiState.RECORDING -> {
-                                FloatingVoiceTypingService.stopRecording(context)
-                            }
-                            FloatingUiState.IDLE, FloatingUiState.ERROR -> {
-                                val hasAudioPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-
-                                if (!hasAudioPermission) {
-                                    Toast.makeText(
-                                        context,
-                                        "মাইক্রোফোন পারমিশন প্রয়োজন। অ্যাপটি ওপেন করে অনুমতি দিন।",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                    val intent = Intent(context, MainActivity::class.java).apply {
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                    }
-                                    context.startActivity(intent)
-                                } else {
-                                    FloatingVoiceTypingService.startRecording(context)
-                                }
-                            }
-                            FloatingUiState.PROCESSING, FloatingUiState.INSERTING -> {
-                                // Busy, no-op
-                            }
-                        }
-                    }
+                    .border(1.5.dp, buttonBgColor.copy(alpha = 0.85f), CircleShape)
+                    .floatingDraggableAndClickable(
+                        onDragStart = onDragStart,
+                        onDrag = onDrag,
+                        onDragEnd = onDragEnd,
+                        onClick = handleOrbClick
+                    )
             ) {
                 if (isRecording) {
                     // Outer audio reactive ring
@@ -223,6 +189,110 @@ fun FloatingVoiceOverlay(
                         )
                     }
                 }
+            }
+
+            // Small close button on top-right corner of the orb when idle
+            if (uiState == FloatingUiState.IDLE) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF262638))
+                        .border(1.dp, Color(0xFF4A4A62), CircleShape)
+                        .clickable { onCloseClick() }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close overlay",
+                        tint = Color(0xFFA0A0BA),
+                        modifier = Modifier.size(10.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Modifier detecting drag gestures and passing relative offsets to update WindowManager overlay layout.
+ */
+private fun Modifier.floatingDragModifier(
+    onDragStart: () -> Unit,
+    onDrag: (dx: Float, dy: Float) -> Unit,
+    onDragEnd: () -> Unit
+): Modifier = this.pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        onDragStart()
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+            if (change.changedToUp() || !change.pressed) {
+                onDragEnd()
+                change.consume()
+                break
+            }
+
+            val dragX = change.position.x - change.previousPosition.x
+            val dragY = change.position.y - change.previousPosition.y
+            change.consume()
+            onDrag(dragX, dragY)
+        }
+    }
+}
+
+/**
+ * Modifier distinguishing between tap gesture (to start/stop voice recording)
+ * and drag gesture (to move the floating orb around the screen smoothly).
+ */
+private fun Modifier.floatingDraggableAndClickable(
+    onDragStart: () -> Unit,
+    onDrag: (dx: Float, dy: Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onClick: () -> Unit
+): Modifier = this.pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        onDragStart()
+        var totalDragX = 0f
+        var totalDragY = 0f
+        var isDragging = false
+        val touchSlop = viewConfiguration.touchSlop
+
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+            if (change.changedToUp()) {
+                if (isDragging) {
+                    onDragEnd()
+                } else {
+                    onClick()
+                }
+                change.consume()
+                break
+            }
+
+            if (!change.pressed) {
+                if (isDragging) onDragEnd()
+                break
+            }
+
+            val dragX = change.position.x - change.previousPosition.x
+            val dragY = change.position.y - change.previousPosition.y
+            totalDragX += dragX
+            totalDragY += dragY
+
+            if (!isDragging && (hypot(totalDragX.toDouble(), totalDragY.toDouble()) > touchSlop)) {
+                isDragging = true
+            }
+
+            if (isDragging) {
+                change.consume()
+                onDrag(dragX, dragY)
             }
         }
     }

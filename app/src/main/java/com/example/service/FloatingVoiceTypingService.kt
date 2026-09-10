@@ -17,8 +17,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.audio.AudioFileDecoder
 import com.example.audio.AudioRecorderManager
 import com.example.dsp.MelSpectrogramPreprocessor
+import com.example.engine.AudioFileProcessor
 import com.example.engine.CtcDecoder
 import com.example.engine.OnnxAsrEngine
 import com.example.engine.TranscriptAccumulator
@@ -31,10 +33,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.Collections
 
 /**
  * Foreground service hosting the microphone capture and offline ONNX ASR streaming pipeline
@@ -83,16 +86,17 @@ class FloatingVoiceTypingService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // Reusing the existing DSP, AudioRecorderManager, OnnxAsrEngine, and CtcDecoder
+    // Reusing the existing DSP, AudioRecorderManager, OnnxAsrEngine, CtcDecoder, and AudioFileProcessor
     private lateinit var audioRecorder: AudioRecorderManager
     private val preprocessor = MelSpectrogramPreprocessor()
     private val onnxEngine = OnnxAsrEngine()
     private val ctcDecoder = CtcDecoder(blankIndex = 128)
     private var tokenizer: SentencePieceTokenizer? = null
     private val transcriptAccumulator = TranscriptAccumulator()
+    private val audioFileProcessor by lazy { AudioFileProcessor(preprocessor, onnxEngine, ctcDecoder) }
 
-    private val isInferring = AtomicBoolean(false)
-    private var recordingJob: Job? = null
+    // Buffer to capture full raw PCM samples during the recording session
+    private val recordedChunks = Collections.synchronizedList(mutableListOf<ShortArray>())
 
     override fun onCreate() {
         super.onCreate()
@@ -170,7 +174,14 @@ class FloatingVoiceTypingService : Service() {
                 vadState: String,
                 isEndOfUtterance: Boolean
             ) {
-                processAudioWindow(audioWindow, isEndOfUtterance)
+                // Streaming chunk inference is bypassed. Full recording is processed on stop.
+            }
+
+            override fun onRawPcmChunk(chunk: ShortArray, count: Int) {
+                if (audioRecorder.isRecordingActive() && count > 0) {
+                    val copy = chunk.copyOf(count)
+                    recordedChunks.add(copy)
+                }
             }
 
             override fun onAmplitudeChanged(rmsNormalized: Float) {
@@ -226,10 +237,12 @@ class FloatingVoiceTypingService : Service() {
                 }
             }
 
+            recordedChunks.clear()
             transcriptAccumulator.clear()
 
             withContext(Dispatchers.Main) {
-                FloatingVoiceController.setUiState(FloatingUiState.RECORDING, "শুনছি...")
+                FloatingVoiceController.setLivePreview("")
+                FloatingVoiceController.setUiState(FloatingUiState.RECORDING, null)
             }
 
             val started = audioRecorder.startRecording(serviceScope)
@@ -245,83 +258,94 @@ class FloatingVoiceTypingService : Service() {
     private fun stopListening() {
         serviceScope.launch {
             withContext(Dispatchers.Main) {
-                FloatingVoiceController.setUiState(FloatingUiState.PROCESSING, "প্রক্রিয়াকরণ...")
+                FloatingVoiceController.setUiState(FloatingUiState.PROCESSING, null)
+                FloatingVoiceController.setLivePreview("")
             }
 
             audioRecorder.stopRecording()
-            val flushedSegment = transcriptAccumulator.flushOnStop()
 
-            val textToInsert = if (flushedSegment != null && flushedSegment.text.isNotBlank()) {
-                flushedSegment.text.trim()
-            } else {
-                transcriptAccumulator.finalTranscript.trim()
+            // 1. Gather all captured PCM audio samples
+            val totalSamples = synchronized(recordedChunks) {
+                recordedChunks.sumOf { it.size }
             }
 
-            if (textToInsert.isNotBlank()) {
-                withContext(Dispatchers.Main) {
-                    FloatingVoiceController.emitFinalizedText(textToInsert)
-                }
-            } else {
+            if (totalSamples < 3200) { // Less than 200ms of audio
                 withContext(Dispatchers.Main) {
                     FloatingVoiceController.showError("কোনো কথা শোনা যায়নি")
-                    kotlinx.coroutines.delay(1200)
+                    delay(1200)
                     FloatingVoiceController.resetToIdle()
                 }
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                return@launch
             }
 
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        }
-    }
-
-    private fun processAudioWindow(audioWindow: ShortArray, isEndOfUtterance: Boolean) {
-        if (!isInferring.compareAndSet(false, true)) return
-
-        serviceScope.launch(Dispatchers.Default) {
-            try {
-                // 1. Preprocessing
-                val prepResult = preprocessor.process(audioWindow)
-                if (prepResult.numFrames <= 0 || prepResult.isSilence) {
-                    return@launch
+            val fullPcm = ShortArray(totalSamples)
+            var offset = 0
+            synchronized(recordedChunks) {
+                for (chunk in recordedChunks) {
+                    System.arraycopy(chunk, 0, fullPcm, offset, chunk.size)
+                    offset += chunk.size
                 }
+                recordedChunks.clear()
+            }
 
-                // 2. ONNX Inference
-                val inferResult = onnxEngine.runInference(prepResult)
-                if (inferResult.isFailure) return@launch
-                val inference = inferResult.getOrThrow()
+            // 2. Save recorded audio into an actual audio file (.wav format) on disk
+            val tempAudioFile = java.io.File(
+                cacheDir,
+                "floating_voice_${System.currentTimeMillis()}.wav"
+            )
 
-                // 3. CTC Decoding
-                val decodeResult = ctcDecoder.decode(
-                    logprobs = inference.logprobs,
-                    numFrames = inference.numFrames,
-                    numClasses = inference.numClasses,
-                    tokenizer = tokenizer
+            try {
+                AudioFileDecoder.writeWavFile(
+                    pcmSamples = fullPcm,
+                    outputFile = tempAudioFile,
+                    sampleRate = 16000,
+                    channels = 1
                 )
-                val decodedText = decodeResult.text
+                Log.i(TAG, "Audio recorded and saved to file: ${tempAudioFile.absolutePath} (${tempAudioFile.length()} bytes)")
 
-                if (isEndOfUtterance) {
-                    // Only committed final text segment is eligible for insertion
-                    val committedSegment = transcriptAccumulator.commitFinal(
-                        rawText = decodedText,
-                        startMs = 0L,
-                        endMs = 0L
-                    )
-                    val committedText = committedSegment?.text ?: ""
-                    if (committedText.isNotBlank()) {
-                        withContext(Dispatchers.Main) {
-                            FloatingVoiceController.setLivePreview(committedText)
-                        }
+                // 3. Decode audio file using the exact audio file decoding architecture (same as Audio Upload)
+                val decodedAudio = AudioFileDecoder.decodeAudioFile(tempAudioFile)
+
+                // 4. Transcribe using AudioFileProcessor
+                transcriptAccumulator.clear()
+                audioFileProcessor.transcribeAudio(
+                    samples = decodedAudio.samples,
+                    tokenizer = tokenizer,
+                    accumulator = transcriptAccumulator
+                )
+
+                val textToInsert = transcriptAccumulator.finalTranscript.trim()
+                if (textToInsert.isNotBlank()) {
+                    withContext(Dispatchers.Main) {
+                        FloatingVoiceController.emitFinalizedText(textToInsert)
+                        FloatingVoiceController.resetToIdle()
                     }
                 } else {
-                    // Update live preview only, NEVER insert intermediate hypotheses!
-                    val live = transcriptAccumulator.updateLive(decodedText)
                     withContext(Dispatchers.Main) {
-                        FloatingVoiceController.setLivePreview(live)
+                        FloatingVoiceController.showError("কোনো কথা বোঝা যায়নি")
+                        delay(1200)
+                        FloatingVoiceController.resetToIdle()
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Audio window processing error", e)
+                Log.e(TAG, "Audio file transcription error", e)
+                withContext(Dispatchers.Main) {
+                    FloatingVoiceController.showError("ট্রান্সক্রিপশন ত্রুটি")
+                    delay(1200)
+                    FloatingVoiceController.resetToIdle()
+                }
             } finally {
-                isInferring.set(false)
+                // 5. Automatically delete the temporary audio file after transcription finishes
+                try {
+                    if (tempAudioFile.exists()) {
+                        val deleted = tempAudioFile.delete()
+                        Log.i(TAG, "Temporary audio file auto-deleted: $deleted (${tempAudioFile.name})")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to delete temporary audio file: ${tempAudioFile.absolutePath}", e)
+                }
+                stopForeground(STOP_FOREGROUND_REMOVE)
             }
         }
     }

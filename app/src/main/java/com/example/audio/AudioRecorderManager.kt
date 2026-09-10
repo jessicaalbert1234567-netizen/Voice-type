@@ -61,6 +61,7 @@ class AudioRecorderManager(
         )
         fun onAmplitudeChanged(rmsNormalized: Float)
         fun onError(message: String)
+        fun onRawPcmChunk(chunk: ShortArray, count: Int) {}
     }
 
     private var listener: AudioListener? = null
@@ -161,6 +162,7 @@ class AudioRecorderManager(
         val rms = sqrt(sumSquares / count)
         val normalizedRms = (rms / 32768.0).toFloat().coerceIn(0f, 1f)
         listener?.onAmplitudeChanged(normalizedRms)
+        listener?.onRawPcmChunk(samples, count)
 
         val isChunkSpeech = normalizedRms >= SILENCE_RMS_THRESHOLD
 

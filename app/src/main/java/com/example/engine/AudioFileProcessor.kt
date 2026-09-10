@@ -153,7 +153,7 @@ class AudioFileProcessor(
         samples: ShortArray,
         tokenizer: SentencePieceTokenizer?,
         accumulator: TranscriptAccumulator = TranscriptAccumulator(),
-        onProgress: (progress: Float, currentSegment: TranscriptSegment?, fullText: String) -> Unit
+        onProgress: (progress: Float, currentSegment: TranscriptSegment?, fullText: String) -> Unit = { _, _, _ -> }
     ): List<TranscriptSegment> {
         val utterances = segmentUtterances(samples)
         val totalUtterances = utterances.size

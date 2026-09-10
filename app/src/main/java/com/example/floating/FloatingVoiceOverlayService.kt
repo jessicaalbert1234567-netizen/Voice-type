@@ -9,7 +9,6 @@ import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.compose.ui.platform.ComposeView
@@ -22,7 +21,6 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.service.FloatingVoiceTypingService
-import kotlin.math.abs
 
 /**
  * Service managing the system overlay window (TYPE_APPLICATION_OVERLAY) for the draggable,
@@ -127,13 +125,19 @@ class FloatingVoiceOverlayService : Service(), LifecycleOwner, SavedStateRegistr
                     context = applicationContext,
                     onCloseClick = {
                         stopSelf()
+                    },
+                    onDragStart = {
+                        handleDragStart()
+                    },
+                    onDrag = { dx, dy ->
+                        handleDrag(dx, dy)
+                    },
+                    onDragEnd = {
+                        handleDragEnd()
                     }
                 )
             }
         }
-
-        // Add touch listener to handle smooth drag & drop
-        setupDragTouchListener(cv)
 
         composeView = cv
         try {
@@ -145,71 +149,57 @@ class FloatingVoiceOverlayService : Service(), LifecycleOwner, SavedStateRegistr
         }
     }
 
-    private fun setupDragTouchListener(view: View) {
-        view.setOnTouchListener(object : View.OnTouchListener {
-            private var initialX = 0
-            private var initialY = 0
-            private var initialTouchX = 0f
-            private var initialTouchY = 0f
-            private var isDragging = false
+    private var accumulatedDragX = 0f
+    private var accumulatedDragY = 0f
 
-            override fun onTouch(v: View?, event: MotionEvent?): Boolean {
-                if (event == null) return false
+    private fun handleDragStart() {
+        accumulatedDragX = layoutParams.x.toFloat()
+        accumulatedDragY = layoutParams.y.toFloat()
+    }
 
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = layoutParams.x
-                        initialY = layoutParams.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        isDragging = false
-                        return false // Allow child clickables to receive down
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = (event.rawX - initialTouchX).toInt()
-                        val dy = (event.rawY - initialTouchY).toInt()
-
-                        // Only consider as drag if movement exceeds threshold
-                        if (!isDragging && (abs(dx) > 12 || abs(dy) > 12)) {
-                            isDragging = true
-                        }
-
-                        if (isDragging) {
-                            layoutParams.x = initialX + dx
-                            layoutParams.y = initialY + dy
-                            try {
-                                windowManager?.updateViewLayout(view, layoutParams)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Error updating overlay layout", e)
-                            }
-                            return true
-                        }
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        if (isDragging) {
-                            // Snap near screen edges and save position
-                            val displayMetrics = resources.displayMetrics
-                            val maxX = displayMetrics.widthPixels - (view.width.takeIf { it > 0 } ?: 180)
-                            val maxY = displayMetrics.heightPixels - (view.height.takeIf { it > 0 } ?: 180)
-
-                            val clampedX = layoutParams.x.coerceIn(10, maxX.coerceAtLeast(10))
-                            val clampedY = layoutParams.y.coerceIn(50, maxY.coerceAtLeast(50))
-
-                            layoutParams.x = clampedX
-                            layoutParams.y = clampedY
-                            try {
-                                windowManager?.updateViewLayout(view, layoutParams)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Error snapping overlay", e)
-                            }
-                            floatingPrefs.savePosition(clampedX, clampedY)
-                            return true
-                        }
-                    }
-                }
-                return false
+    private fun handleDrag(dx: Float, dy: Float) {
+        accumulatedDragX += dx
+        accumulatedDragY += dy
+        layoutParams.x = accumulatedDragX.toInt()
+        layoutParams.y = accumulatedDragY.toInt()
+        try {
+            composeView?.let { cv ->
+                windowManager?.updateViewLayout(cv, layoutParams)
             }
-        })
+        } catch (e: Exception) {
+            Log.w(TAG, "Error updating overlay position during drag", e)
+        }
+    }
+
+    private fun handleDragEnd() {
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+
+        val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (56 * displayMetrics.density).toInt()
+        val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (56 * displayMetrics.density).toInt()
+
+        val minX = 10
+        val maxX = (screenWidth - viewWidth - 10).coerceAtLeast(minX)
+        val minY = 50
+        val maxY = (screenHeight - viewHeight - 50).coerceAtLeast(minY)
+
+        val clampedX = layoutParams.x.coerceIn(minX, maxX)
+        val clampedY = layoutParams.y.coerceIn(minY, maxY)
+
+        layoutParams.x = clampedX
+        layoutParams.y = clampedY
+        accumulatedDragX = clampedX.toFloat()
+        accumulatedDragY = clampedY.toFloat()
+
+        try {
+            composeView?.let { cv ->
+                windowManager?.updateViewLayout(cv, layoutParams)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error snapping overlay on drag end", e)
+        }
+        floatingPrefs.savePosition(clampedX, clampedY)
     }
 
     override fun onDestroy() {
