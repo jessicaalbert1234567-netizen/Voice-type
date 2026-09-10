@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Kazalbrur Bangla STT</string>
+    <string name="accessibility_service_description">ফ্লোটিং ভয়েস টাইপিংয়ের মাধ্যমে অন্যান্য অ্যাপের টেক্সট ফিল্ডে সরাসরি বাংলা টেক্সট লেখার জন্য অ্যাক্সেসিবিলিটি সার্ভিস প্রয়োজন।</string>
+    <string name="floating_voice_typing_title">ফ্লোটিং ভয়েস টাইপিং</string>
+    <string name="floating_voice_notification_channel">Bangla Voice Typing</string>
+    <string name="floating_voice_notification_desc">Floating Voice Typing recording foreground service</string>
+    <string name="floating_voice_listening">শুনছি... কথা বলুন</string>
+</resources>

@@ -1,0 +1,113 @@
+name: Build and Release Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Get source code
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # 2. Java 17
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 3. Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 4. Install required Android SDK packages
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      # 5. Gradle 9.3.1
+      - name: Setup Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      # 6. Verify environment
+      - name: Check build environment
+        run: |
+          echo "===== JAVA ====="
+          java -version
+
+          echo "===== GRADLE ====="
+          gradle --version
+
+          echo "===== ANDROID SDK ====="
+          sdkmanager --list_installed | head -100
+
+      # 7. Create the debug keystore required by this project
+      - name: Create debug keystore
+        run: |
+          keytool -genkeypair \
+            -v \
+            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          echo "Debug keystore created:"
+          ls -lh "$GITHUB_WORKSPACE/debug.keystore"
+
+      # 8. Build APK
+      - name: Build Debug APK
+        run: |
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            --console=plain \
+            assembleDebug
+
+      # 9. Verify APK exists
+      - name: Verify APK
+        run: |
+          echo "===== APK OUTPUT ====="
+          find app/build/outputs -type f -name "*.apk" -exec ls -lh {} \;
+          test -f app/build/outputs/apk/debug/app-debug.apk
+
+      # 10. Upload APK to GitHub Actions artifact
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      # 11. Publish APK to GitHub Release
+      - name: Publish APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest Debug APK"
+          body: "Direct download: [app-debug.apk](https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk)"
+          files: app/build/outputs/apk/debug/app-debug.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
