@@ -1,7 +1,11 @@
 package com.example.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.floating.FloatingUiState
@@ -83,6 +87,15 @@ class FloatingVoiceAccessibilityService : AccessibilityService() {
         FloatingVoiceController.setUiState(FloatingUiState.INSERTING, "লিখছি...")
 
         serviceScope.launch {
+            // Always copy to system clipboard first as guaranteed fallback and paste buffer
+            try {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clip = ClipData.newPlainText("Bengali Speech", text)
+                clipboard?.setPrimaryClip(clip)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error copying to clipboard", e)
+            }
+
             // Give window manager a brief moment to stabilize focus if coming from overlay click
             delay(50)
 
@@ -98,9 +111,9 @@ class FloatingVoiceAccessibilityService : AccessibilityService() {
             }
 
             if (targetNode == null) {
-                Log.w(TAG, "No editable text field currently focused")
-                FloatingVoiceController.showError("Text field পাওয়া যায়নি")
-                delay(1800)
+                Log.w(TAG, "No editable text field currently focused - text copied to clipboard")
+                Toast.makeText(applicationContext, "টেক্সট কপি করা হয়েছে, পেস্ট করুন", Toast.LENGTH_SHORT).show()
+                delay(800)
                 FloatingVoiceController.resetToIdle()
                 return@launch
             }
@@ -111,9 +124,9 @@ class FloatingVoiceAccessibilityService : AccessibilityService() {
                 delay(400)
                 FloatingVoiceController.resetToIdle()
             } else {
-                Log.w(TAG, "Failed to insert text into target node")
-                FloatingVoiceController.showError("টেক্সট প্রবেশে ব্যর্থ হয়েছে")
-                delay(1800)
+                Log.w(TAG, "Direct insertion failed, but text is available in clipboard")
+                Toast.makeText(applicationContext, "টেক্সট কপি করা হয়েছে, পেস্ট করুন", Toast.LENGTH_SHORT).show()
+                delay(800)
                 FloatingVoiceController.resetToIdle()
             }
         }

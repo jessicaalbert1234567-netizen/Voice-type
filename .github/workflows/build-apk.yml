@@ -104,9 +104,14 @@ jobs:
       - name: Publish APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: "Latest Debug APK"
-          body: "Direct download: [app-debug.apk](https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk)"
+          tag_name: v${{ github.run_number }}
+          name: "Debug APK Build #${{ github.run_number }}"
+          body: |
+            ### 🎙️ Updated Bangla Voice Typing Debug APK
+            - **Build Number:** #${{ github.run_number }}
+            - **Commit:** ${{ github.sha }}
+            - **Direct Download:** [app-debug.apk](https://github.com/${{ github.repository }}/releases/download/v${{ github.run_number }}/app-debug.apk)
+            - **Latest Download Link:** [Download Latest app-debug.apk](https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk)
           files: app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
         env:

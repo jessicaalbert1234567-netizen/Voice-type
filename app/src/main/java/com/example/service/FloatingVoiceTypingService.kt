@@ -6,6 +6,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -174,7 +176,11 @@ class FloatingVoiceTypingService : Service() {
                 vadState: String,
                 isEndOfUtterance: Boolean
             ) {
-                // Streaming chunk inference is bypassed. Full recording is processed on stop.
+                // When user finishes speaking and pause boundary is detected, automatically stop & transcribe
+                if (isEndOfUtterance && audioRecorder.isRecordingActive()) {
+                    Log.i(TAG, "Speech end detected via VAD. Auto-stopping and processing audio file.")
+                    stopListening()
+                }
             }
 
             override fun onRawPcmChunk(chunk: ShortArray, count: Int) {
@@ -317,8 +323,17 @@ class FloatingVoiceTypingService : Service() {
 
                 val textToInsert = transcriptAccumulator.finalTranscript.trim()
                 if (textToInsert.isNotBlank()) {
+                    try {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        val clip = ClipData.newPlainText("Bengali Speech", textToInsert)
+                        clipboard?.setPrimaryClip(clip)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error copying to clipboard", e)
+                    }
+
                     withContext(Dispatchers.Main) {
                         FloatingVoiceController.emitFinalizedText(textToInsert)
+                        delay(600)
                         FloatingVoiceController.resetToIdle()
                     }
                 } else {

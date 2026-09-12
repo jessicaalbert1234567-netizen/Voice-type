@@ -72,4 +72,54 @@ class TextInsertionHelperTest {
         )
         assertEquals("ভালো। সব ঠিকঠাক", merged)
     }
+
+    @Test
+    fun testIsPlaceholderOrHint_chromeAndYouTubeHints() {
+        // Chrome omnibox hint
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Search Google or type URL", null, false)
+        )
+        // YouTube search hint
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Search YouTube", null, false)
+        )
+        // WhatsApp / messaging hint
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Type a message", null, false)
+        )
+        // Generic search hint
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Search...", null, false)
+        )
+        // Matching explicit hint
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Custom search hint", "Custom search hint", false)
+        )
+        // When system reports isShowingHint = true
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Any text", null, true)
+        )
+        // Real user text should NOT be identified as placeholder
+        org.junit.Assert.assertFalse(
+            TextInsertionHelper.isPlaceholderOrHint("প্রথম আলো পত্রিকা", null, false)
+        )
+        org.junit.Assert.assertFalse(
+            TextInsertionHelper.isPlaceholderOrHint("আমার সোনার বাংলা", null, false)
+        )
+        // Chrome url_bar view id test
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Search Google or type URL", null, false, "com.android.chrome:id/url_bar")
+        )
+        // YouTube search_edit_text view id test
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Search YouTube", null, false, "com.google.android.youtube:id/search_edit_text")
+        )
+        // Bengali search hint test
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("YouTube-এ খুঁজুন", null, false)
+        )
+        org.junit.Assert.assertTrue(
+            TextInsertionHelper.isPlaceholderOrHint("Google-এ খুঁজুন", null, false)
+        )
+    }
 }
