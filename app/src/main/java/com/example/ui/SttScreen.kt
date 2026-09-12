@@ -188,6 +188,16 @@ fun SttScreen(
                                 letterSpacing = (-0.3).sp,
                                 color = TextPrimary
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "v1.1",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = LavenderPrimary,
+                                modifier = Modifier
+                                    .background(LavenderPrimary.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
                             if (uiState.isRecording) {
                                 Row(

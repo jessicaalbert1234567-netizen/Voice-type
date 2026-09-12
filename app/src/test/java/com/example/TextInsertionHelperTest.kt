@@ -122,4 +122,24 @@ class TextInsertionHelperTest {
             TextInsertionHelper.isPlaceholderOrHint("Google-এ খুঁজুন", null, false)
         )
     }
+
+    @Test
+    fun testStripPlaceholderPrefix() {
+        org.junit.Assert.assertEquals(
+            "প্রথম আলো পত্রিকা",
+            TextInsertionHelper.stripPlaceholderPrefix("Search Google or type URL প্রথম আলো পত্রিকা")
+        )
+        org.junit.Assert.assertEquals(
+            "জয়ুন দিবী",
+            TextInsertionHelper.stripPlaceholderPrefix("Search YouTube জয়ুন দিবী")
+        )
+        org.junit.Assert.assertEquals(
+            "বাংলা সংবাদ",
+            TextInsertionHelper.stripPlaceholderPrefix("search বাংলা সংবাদ")
+        )
+        org.junit.Assert.assertEquals(
+            "প্রথম আলো পত্রিকা",
+            TextInsertionHelper.stripPlaceholderPrefix("প্রথম আলো পত্রিকা")
+        )
+    }
 }

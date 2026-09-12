@@ -235,6 +235,52 @@ object TextInsertionHelper {
     }
 
     /**
+     * Strips common browser/search app placeholder prefixes from the text if present,
+     * ensuring no "Search Google or type URL", "Search YouTube", etc. ever leak to output.
+     */
+    fun stripPlaceholderPrefix(text: String): String {
+        var result = text.trim()
+        val prefixes = listOf(
+            "search google or type url",
+            "search google or type web address",
+            "search or type url",
+            "search or type web address",
+            "search youtube",
+            "search google",
+            "search web",
+            "search apps & games",
+            "search apps and games",
+            "search apps",
+            "search here",
+            "search videos",
+            "search music",
+            "search...",
+            "search…",
+            "search",
+            "type a message",
+            "type something",
+            "write a message",
+            "write something",
+            "send a message",
+            "what's on your mind",
+            "google-এ খুঁজুন বা কোনো url লিখুন",
+            "google-এ খুঁজুন",
+            "youtube-এ খুঁজুন",
+            "খুঁজুন",
+            "অনুসন্ধান করুন",
+            "অনুসন্ধান",
+            "বার্তা লিখুন"
+        )
+        for (prefix in prefixes) {
+            val lower = result.lowercase()
+            if (lower.startsWith(prefix)) {
+                result = result.substring(prefix.length).trim()
+            }
+        }
+        return result
+    }
+
+    /**
      * Inserts [transcribedText] into the provided [node].
      *
      * Primary approach: ACTION_SET_TEXT
@@ -269,7 +315,7 @@ object TextInsertionHelper {
             val selStart = node.textSelectionStart
             val selEnd = node.textSelectionEnd
 
-            val newFullText = if (existingText.isEmpty()) {
+            val candidateText = if (existingText.isEmpty()) {
                 cleanInsert
             } else if (selStart >= 0 && selEnd > selStart && selStart <= existingText.length) {
                 val before = existingText.substring(0, selStart)
@@ -279,6 +325,9 @@ object TextInsertionHelper {
                 val cursorPosition = selStart.takeIf { it >= 0 } ?: existingText.length
                 computeMergedText(existingText, cursorPosition, cleanInsert)
             }
+
+            // Strip any remaining placeholder prefix (extra layer of defense)
+            val newFullText = stripPlaceholderPrefix(candidateText).ifEmpty { cleanInsert }
 
             // 1. Primary method: ACTION_SET_TEXT
             // Replaces the content with newFullText. This guarantees "Search Google...", "Search YouTube", etc.
@@ -305,11 +354,12 @@ object TextInsertionHelper {
 
             // 2. Fallback method: ACTION_PASTE (for custom non-standard editors)
             Log.w(TAG, "ACTION_SET_TEXT failed, attempting fallback ACTION_PASTE")
-            if (existingText.isEmpty() && !node.text.isNullOrEmpty()) {
-                // If original text was a placeholder, select all before pasting so it gets overwritten
+            val rawCurrent = node.text?.toString() ?: ""
+            if (existingText.isEmpty() || isPlaceholderOrHint(rawCurrent, node.hintText?.toString(), false, node.viewIdResourceName)) {
+                // Select all before pasting so any placeholder or previous search is completely overwritten
                 val selectAllArgs = Bundle().apply {
                     putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
-                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, node.text?.length ?: 0)
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, rawCurrent.length)
                 }
                 node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectAllArgs)
             }
