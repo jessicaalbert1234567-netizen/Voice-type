@@ -94,6 +94,8 @@ fun FloatingVoiceOverlay(
     val handleOrbClick = {
         when (uiState) {
             FloatingUiState.RECORDING -> {
+                // Instant UI feedback: Immediately transition to PROCESSING
+                FloatingVoiceController.setUiState(FloatingUiState.PROCESSING, null)
                 FloatingVoiceTypingService.stopRecording(context)
             }
             FloatingUiState.IDLE, FloatingUiState.ERROR -> {
@@ -113,6 +115,8 @@ fun FloatingVoiceOverlay(
                     }
                     context.startActivity(intent)
                 } else {
+                    // Instant UI feedback: Immediately transition to RECORDING within 0ms
+                    FloatingVoiceController.setUiState(FloatingUiState.RECORDING, null)
                     FloatingVoiceTypingService.startRecording(context)
                 }
             }

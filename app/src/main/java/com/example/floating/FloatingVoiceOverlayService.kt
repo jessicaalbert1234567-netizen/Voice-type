@@ -21,6 +21,11 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.service.FloatingVoiceTypingService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Service managing the system overlay window (TYPE_APPLICATION_OVERLAY) for the draggable,
@@ -52,6 +57,7 @@ class FloatingVoiceOverlayService : Service(), LifecycleOwner, SavedStateRegistr
     private var composeView: View? = null
     private lateinit var floatingPrefs: FloatingPreferences
     private lateinit var layoutParams: WindowManager.LayoutParams
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
@@ -62,6 +68,12 @@ class FloatingVoiceOverlayService : Service(), LifecycleOwner, SavedStateRegistr
 
         floatingPrefs = FloatingPreferences(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+
+        // Pre-warm the ONNX ASR engine and tokenizer in the background immediately
+        // so tapping the floating orb has zero loading latency!
+        serviceScope.launch {
+            FloatingVoiceEngineHolder.warmUp(applicationContext)
+        }
 
         if (canDrawOverlays()) {
             initOverlay()
@@ -219,6 +231,8 @@ class FloatingVoiceOverlayService : Service(), LifecycleOwner, SavedStateRegistr
 
         FloatingVoiceController.setOverlayActive(false)
         FloatingVoiceTypingService.stopService(applicationContext)
+        FloatingVoiceEngineHolder.release()
+        serviceScope.cancel()
         Log.i(TAG, "FloatingVoiceOverlayService destroyed")
     }
 

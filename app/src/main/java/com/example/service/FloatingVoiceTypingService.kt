@@ -28,8 +28,7 @@ import com.example.engine.OnnxAsrEngine
 import com.example.engine.TranscriptAccumulator
 import com.example.floating.FloatingUiState
 import com.example.floating.FloatingVoiceController
-import com.example.model.ModelManager
-import com.example.tokenizer.SentencePieceTokenizer
+import com.example.floating.FloatingVoiceEngineHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -88,14 +87,8 @@ class FloatingVoiceTypingService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // Reusing the existing DSP, AudioRecorderManager, OnnxAsrEngine, CtcDecoder, and AudioFileProcessor
     private lateinit var audioRecorder: AudioRecorderManager
-    private val preprocessor = MelSpectrogramPreprocessor()
-    private val onnxEngine = OnnxAsrEngine()
-    private val ctcDecoder = CtcDecoder(blankIndex = 128)
-    private var tokenizer: SentencePieceTokenizer? = null
     private val transcriptAccumulator = TranscriptAccumulator()
-    private val audioFileProcessor by lazy { AudioFileProcessor(preprocessor, onnxEngine, ctcDecoder) }
 
     // Buffer to capture full raw PCM samples during the recording session
     private val recordedChunks = Collections.synchronizedList(mutableListOf<ShortArray>())
@@ -203,44 +196,15 @@ class FloatingVoiceTypingService : Service() {
 
     private fun startListening() {
         serviceScope.launch {
-            // Check if model and tokenizer exist
-            val modelManager = ModelManager(applicationContext)
-            val modelFile = modelManager.modelFile
-            val tokenizerFile = modelManager.tokenizerFile
-
-            if (!modelFile.exists() || !tokenizerFile.exists()) {
+            // Fast warm-up check (returns instantly if already warmed up by FloatingVoiceOverlayService)
+            val isReady = FloatingVoiceEngineHolder.warmUp(applicationContext)
+            val tokenizer = FloatingVoiceEngineHolder.tokenizer
+            if (!isReady || !FloatingVoiceEngineHolder.onnxEngine.isLoaded || tokenizer == null) {
                 withContext(Dispatchers.Main) {
-                    FloatingVoiceController.showError("মডেল ও টোকেনাইজার নেই")
+                    FloatingVoiceController.showError("মডেল ও টোকেনাইজার প্রস্তুত নয়")
                 }
                 stopSelf()
                 return@launch
-            }
-
-            // Ensure model & tokenizer are loaded
-            if (!onnxEngine.isLoaded) {
-                val modelResult = onnxEngine.loadModel(modelFile, numThreads = 2)
-                if (modelResult.isFailure) {
-                    withContext(Dispatchers.Main) {
-                        FloatingVoiceController.showError("মডেল লোড ব্যর্থ হয়েছে")
-                    }
-                    stopSelf()
-                    return@launch
-                }
-            }
-
-            if (tokenizer == null) {
-                try {
-                    val tok = SentencePieceTokenizer.fromFile(tokenizerFile)
-                    tokenizer = tok
-                    ctcDecoder.updateBlankIndexFromVocab(tok.vocabSize, 129)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to load tokenizer", e)
-                    withContext(Dispatchers.Main) {
-                        FloatingVoiceController.showError("টোকেনাইজার লোড ব্যর্থ")
-                    }
-                    stopSelf()
-                    return@launch
-                }
             }
 
             recordedChunks.clear()
@@ -295,29 +259,12 @@ class FloatingVoiceTypingService : Service() {
                 recordedChunks.clear()
             }
 
-            // 2. Save recorded audio into an actual audio file (.wav format) on disk
-            val tempAudioFile = java.io.File(
-                cacheDir,
-                "floating_voice_${System.currentTimeMillis()}.wav"
-            )
-
             try {
-                AudioFileDecoder.writeWavFile(
-                    pcmSamples = fullPcm,
-                    outputFile = tempAudioFile,
-                    sampleRate = 16000,
-                    channels = 1
-                )
-                Log.i(TAG, "Audio recorded and saved to file: ${tempAudioFile.absolutePath} (${tempAudioFile.length()} bytes)")
-
-                // 3. Decode audio file using the exact audio file decoding architecture (same as Audio Upload)
-                val decodedAudio = AudioFileDecoder.decodeAudioFile(tempAudioFile)
-
-                // 4. Transcribe using AudioFileProcessor
+                // 2. Direct high-speed in-memory transcription: ZERO disk writing, ZERO MediaCodec decoding!
                 transcriptAccumulator.clear()
-                audioFileProcessor.transcribeAudio(
-                    samples = decodedAudio.samples,
-                    tokenizer = tokenizer,
+                FloatingVoiceEngineHolder.audioFileProcessor.transcribeAudio(
+                    samples = fullPcm,
+                    tokenizer = FloatingVoiceEngineHolder.tokenizer,
                     accumulator = transcriptAccumulator
                 )
 
@@ -344,22 +291,13 @@ class FloatingVoiceTypingService : Service() {
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Audio file transcription error", e)
+                Log.e(TAG, "In-memory transcription error", e)
                 withContext(Dispatchers.Main) {
                     FloatingVoiceController.showError("ট্রান্সক্রিপশন ত্রুটি")
                     delay(1200)
                     FloatingVoiceController.resetToIdle()
                 }
             } finally {
-                // 5. Automatically delete the temporary audio file after transcription finishes
-                try {
-                    if (tempAudioFile.exists()) {
-                        val deleted = tempAudioFile.delete()
-                        Log.i(TAG, "Temporary audio file auto-deleted: $deleted (${tempAudioFile.name})")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to delete temporary audio file: ${tempAudioFile.absolutePath}", e)
-                }
                 stopForeground(STOP_FOREGROUND_REMOVE)
             }
         }
@@ -385,7 +323,7 @@ class FloatingVoiceTypingService : Service() {
         super.onDestroy()
         isRunning = false
         audioRecorder.stopRecording()
-        onnxEngine.release()
+        // Note: FloatingVoiceEngineHolder is intentionally kept warm so subsequent voice typing taps remain instantaneous!
         serviceScope.cancel()
         Log.i(TAG, "FloatingVoiceTypingService destroyed")
     }
