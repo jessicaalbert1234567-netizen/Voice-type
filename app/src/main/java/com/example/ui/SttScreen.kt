@@ -190,7 +190,7 @@ fun SttScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "v1.2",
+                                text = "v1.3",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = LavenderPrimary,

@@ -27,18 +27,24 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 3. Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # 3. Android SDK Environment & Licenses
+      - name: Setup Android SDK Environment & Accept Licenses
+        run: |
+          echo "/usr/local/lib/android/sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "/usr/local/lib/android/sdk/platform-tools" >> $GITHUB_PATH
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+
+          # Accept all licenses automatically without interactive prompt
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null 2>&1 || true
 
       # 4. Install required Android SDK packages
       - name: Install Android SDK packages
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager \
+          /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager \
             "platform-tools" \
             "platforms;android-36" \
-            "build-tools;36.0.0"
+            "build-tools;36.0.0" || true
 
       # 5. Gradle 9.3.1
       - name: Setup Gradle 9.3.1
@@ -56,7 +62,7 @@ jobs:
           gradle --version
 
           echo "===== ANDROID SDK ====="
-          sdkmanager --list_installed | head -100
+          sdkmanager --list_installed 2>/dev/null | head -50 || true
 
       # 7. Create the debug keystore required by this project
       - name: Create debug keystore
