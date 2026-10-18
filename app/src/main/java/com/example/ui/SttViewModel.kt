@@ -13,6 +13,7 @@ import com.example.engine.AudioFileProcessor
 import com.example.engine.CtcDecoder
 import com.example.engine.OnnxAsrEngine
 import com.example.engine.TranscriptAccumulator
+import com.example.floating.FloatingVoiceEngineHolder
 import com.example.model.ModelManager
 import com.example.tokenizer.SentencePieceTokenizer
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +64,7 @@ class SttViewModel(application: Application) : AndroidViewModel(application) {
     init {
         checkPersistedFilesAndInitialize()
         observeImportProgress()
+        observeDownloadProgress()
         setupAudioListener()
     }
 
@@ -75,6 +77,24 @@ class SttViewModel(application: Application) : AndroidViewModel(application) {
                         importFileName = progress.fileName,
                         importProgressFraction = progress.progressFraction,
                         importStatusText = progress.statusMessage
+                    )
+                }
+            }
+        }
+    }
+
+    private fun observeDownloadProgress() {
+        viewModelScope.launch {
+            modelManager.downloadProgress.collect { progress ->
+                _uiState.update { current ->
+                    current.copy(
+                        isDownloadingRequiredFiles = progress.isDownloading,
+                        downloadProgressFraction = progress.progressFraction,
+                        downloadPercentage = progress.percentage,
+                        downloadBytesDownloaded = progress.bytesDownloaded,
+                        downloadTotalBytes = progress.totalBytes,
+                        downloadStatusMessage = progress.statusMessage,
+                        downloadError = progress.error
                     )
                 }
             }
@@ -100,11 +120,81 @@ class SttViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            if (tokenizerReady) {
+            if (tokenizerReady && modelReady) {
                 loadTokenizerInternal()
-            }
-            if (modelReady) {
                 loadModelInternal()
+                FloatingVoiceEngineHolder.warmUp(getApplication())
+            } else {
+                // Automatically download required files only one time
+                startAutoDownload()
+            }
+        }
+    }
+
+    fun startAutoDownload() {
+        viewModelScope.launch {
+            if (modelManager.isModelReady() && modelManager.isTokenizerReady()) {
+                val modelBytes = modelManager.getModelSizeBytes()
+                val tokenizerBytes = modelManager.getTokenizerSizeBytes()
+                _uiState.update {
+                    it.copy(
+                        isModelImported = true,
+                        isTokenizerImported = true,
+                        modelSizeBytes = modelBytes,
+                        modelSizeFormatted = modelManager.formatFileSize(modelBytes),
+                        tokenizerSizeBytes = tokenizerBytes,
+                        tokenizerSizeFormatted = modelManager.formatFileSize(tokenizerBytes),
+                        isDownloadingRequiredFiles = false,
+                        downloadError = null
+                    )
+                }
+                loadTokenizerInternal()
+                loadModelInternal()
+                FloatingVoiceEngineHolder.warmUp(getApplication())
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    isDownloadingRequiredFiles = true,
+                    downloadError = null,
+                    downloadProgressFraction = 0f,
+                    downloadPercentage = 0,
+                    downloadBytesDownloaded = 0L,
+                    downloadTotalBytes = ModelManager.EXPECTED_TOTAL_BYTES,
+                    downloadStatusMessage = "Downloading required files..."
+                )
+            }
+
+            val result = modelManager.downloadRequiredFiles()
+            if (result.isSuccess) {
+                val modelBytes = modelManager.getModelSizeBytes()
+                val tokenizerBytes = modelManager.getTokenizerSizeBytes()
+                _uiState.update {
+                    it.copy(
+                        isModelImported = true,
+                        isTokenizerImported = true,
+                        modelSizeBytes = modelBytes,
+                        modelSizeFormatted = modelManager.formatFileSize(modelBytes),
+                        tokenizerSizeBytes = tokenizerBytes,
+                        tokenizerSizeFormatted = modelManager.formatFileSize(tokenizerBytes),
+                        isDownloadingRequiredFiles = false,
+                        downloadError = null,
+                        userMessage = "Required files downloaded successfully!"
+                    )
+                }
+                loadTokenizerInternal()
+                loadModelInternal()
+                FloatingVoiceEngineHolder.warmUp(getApplication())
+            } else {
+                val err = result.exceptionOrNull()?.localizedMessage ?: "Download failed"
+                _uiState.update {
+                    it.copy(
+                        isDownloadingRequiredFiles = false,
+                        downloadError = err,
+                        userMessage = "Download failed: $err"
+                    )
+                }
             }
         }
     }

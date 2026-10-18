@@ -95,6 +95,7 @@ fun TranscriptionCard(
     uiState: SttUiState,
     onClearClick: () -> Unit,
     onSelectHypothesis: (Long, String) -> Unit = { _, _ -> },
+    onRetryDownload: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -363,7 +364,13 @@ fun TranscriptionCard(
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                if (combinedText.isEmpty() && uiState.liveHypothesisHistory.isEmpty()) {
+                if (!uiState.isBothReady) {
+                    RequiredFilesDownloadCard(
+                        uiState = uiState,
+                        onRetryClick = onRetryDownload,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                } else if (combinedText.isEmpty() && uiState.liveHypothesisHistory.isEmpty()) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -379,8 +386,7 @@ fun TranscriptionCard(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (uiState.isBothReady) "মাইক্রোফোন চালু করে বাংলায় কথা বলুন...\nআঞ্চলিক বৈচিত্র্যের সকল হাইপোথিসিস সংরক্ষিত থাকবে।"
-                            else "মডেল ও টোকেনাইজার যুক্ত করে শুরু করুন",
+                            text = "মাইক্রোফোন চালু করে বাংলায় কথা বলুন...\nআঞ্চলিক বৈচিত্র্যের সকল হাইপোথিসিস সংরক্ষিত থাকবে।",
                             fontSize = 14.sp,
                             color = TextMuted.copy(alpha = 0.7f),
                             fontStyle = FontStyle.Italic,

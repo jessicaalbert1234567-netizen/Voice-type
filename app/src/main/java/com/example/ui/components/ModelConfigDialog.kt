@@ -58,7 +58,8 @@ fun ModelConfigDialog(
     onImportModelClick: () -> Unit,
     onImportTokenizerClick: () -> Unit,
     onRemoveModelClick: () -> Unit,
-    onRemoveTokenizerClick: () -> Unit
+    onRemoveTokenizerClick: () -> Unit,
+    onDownloadRequiredFilesClick: () -> Unit = {}
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -182,7 +183,7 @@ fun ModelConfigDialog(
                     }
 
                     Text(
-                        text = "Conformer 120M INT8 ONNX Model (~137MB)",
+                        text = "Android-Compatible Conformer 120M ONNX Model",
                         fontSize = 11.5.sp,
                         color = TextSecondary
                     )
@@ -245,7 +246,7 @@ fun ModelConfigDialog(
                                     modifier = Modifier
                                         .size(34.dp)
                                         .testTag("remove_tokenizer_button")
-                                ) {
+                                    ) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
                                         contentDescription = "Remove Tokenizer",
@@ -258,10 +259,31 @@ fun ModelConfigDialog(
                     }
 
                     Text(
-                        text = "SentencePiece Unigram Tokenizer (~280KB)",
+                        text = "SentencePiece Tokenizer (~239KB)",
                         fontSize = 11.5.sp,
                         color = TextSecondary
                     )
+                }
+
+                if (!uiState.isBothReady) {
+                    Button(
+                        onClick = onDownloadRequiredFilesClick,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = LavenderPrimary,
+                            contentColor = ElegantDarkBackground
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                    ) {
+                        Text(
+                            text = if (uiState.isDownloadingRequiredFiles) "ডাউনলোডিং required files (${uiState.downloadPercentage}%)"
+                            else "প্রয়োজনীয় ফাইল ডাউনলোড করুন",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                    }
                 }
 
                 // 3. Floating Voice Typing Section (Wispr Flow style)

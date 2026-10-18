@@ -61,11 +61,20 @@ data class SttUiState(
     val fileFinalizedSegments: List<TranscriptSegment> = emptyList(),
     val fileTranscript: String = "",
 
-    // Import progress
+    // Import progress (Manual SAF)
     val isImporting: Boolean = false,
     val importFileName: String = "",
     val importProgressFraction: Float = 0f,
     val importStatusText: String = "",
+
+    // Auto-download State for Required Files
+    val isDownloadingRequiredFiles: Boolean = false,
+    val downloadProgressFraction: Float = 0f,
+    val downloadPercentage: Int = 0,
+    val downloadBytesDownloaded: Long = 0L,
+    val downloadTotalBytes: Long = 0L,
+    val downloadStatusMessage: String = "",
+    val downloadError: String? = null,
 
     // Diagnostics Modal
     val showDiagnosticDialog: Boolean = false,

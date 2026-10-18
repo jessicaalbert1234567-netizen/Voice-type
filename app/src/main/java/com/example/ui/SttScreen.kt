@@ -182,7 +182,7 @@ fun SttScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "বাংলা স্পিচ টু টেক্সট",
+                                text = "Aunik Voice Typing",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 letterSpacing = (-0.3).sp,
@@ -243,7 +243,7 @@ fun SttScreen(
                             }
                         }
                         Text(
-                            text = "Kazalbrur Conformer 120M • 100% On-Device",
+                            text = "Bangla Speech-to-Text • 100% On-Device",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Normal,
                             color = TextSecondary
@@ -582,6 +582,7 @@ fun SttScreen(
                     uiState = uiState,
                     onClearClick = { viewModel.clearTranscript() },
                     onSelectHypothesis = { groupId, text -> viewModel.selectHypothesis(groupId, text) },
+                    onRetryDownload = { viewModel.startAutoDownload() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
@@ -633,7 +634,8 @@ fun SttScreen(
                     }
                 },
                 onRemoveModelClick = { viewModel.removeModel() },
-                onRemoveTokenizerClick = { viewModel.removeTokenizer() }
+                onRemoveTokenizerClick = { viewModel.removeTokenizer() },
+                onDownloadRequiredFilesClick = { viewModel.startAutoDownload() }
             )
         }
 

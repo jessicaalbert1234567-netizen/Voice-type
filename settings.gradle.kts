@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Kazalbrur Bangla STT"
+rootProject.name = "Aunik voice typing"
 
 include(":app")

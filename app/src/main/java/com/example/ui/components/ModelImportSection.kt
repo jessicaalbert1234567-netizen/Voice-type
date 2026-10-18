@@ -309,7 +309,7 @@ fun ModelImportSection(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Model: kazalbrur_int8.onnx (~137MB) • Tokenizer: tokenizer.model (~280KB)",
+                            text = "Model: Android-compatible ONNX (~144MB) • Tokenizer: tokenizer.model (~239KB)",
                             fontSize = 11.sp,
                             lineHeight = 15.sp,
                             color = TextSecondary
