@@ -19,10 +19,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.KeyboardVoice
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -30,11 +30,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,6 +45,7 @@ import com.example.ui.SttUiState
 import com.example.ui.theme.ElegantDarkBackground
 import com.example.ui.theme.ElegantDarkBorder
 import com.example.ui.theme.ElegantDarkSurfaceCard
+import com.example.ui.theme.ErrorContainer
 import com.example.ui.theme.ErrorRed
 import com.example.ui.theme.LavenderPrimary
 import com.example.ui.theme.SuccessGreen
@@ -55,10 +57,10 @@ import com.example.ui.theme.TextSecondary
 fun ModelConfigDialog(
     uiState: SttUiState,
     onDismiss: () -> Unit,
-    onImportModelClick: () -> Unit,
-    onImportTokenizerClick: () -> Unit,
-    onRemoveModelClick: () -> Unit,
-    onRemoveTokenizerClick: () -> Unit,
+    onImportModelClick: () -> Unit = {},
+    onImportTokenizerClick: () -> Unit = {},
+    onRemoveModelClick: () -> Unit = {},
+    onRemoveTokenizerClick: () -> Unit = {},
     onDownloadRequiredFilesClick: () -> Unit = {}
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -77,24 +79,32 @@ fun ModelConfigDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Header
+                // Header: "ভয়েস টাইপিং"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
-                            tint = LavenderPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(LavenderPrimary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardVoice,
+                                contentDescription = null,
+                                tint = LavenderPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "মডেল ও কনফিগারেশন",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "ভয়েস টাইপিং",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
                     }
@@ -113,185 +123,134 @@ fun ModelConfigDialog(
 
                 HorizontalDivider(thickness = 1.dp, color = ElegantDarkBorder)
 
-                // 1. Model Status & Actions
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(ElegantDarkBackground, RoundedCornerShape(16.dp))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "MODEL STATUS",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp,
-                                color = TextMuted
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            StatusBadge(
-                                isReady = uiState.isModelImported,
-                                readyText = if (uiState.modelSizeFormatted.isNotEmpty()) "Ready (${uiState.modelSizeFormatted})" else "Ready",
-                                notReadyText = "Not Imported"
-                            )
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Button(
-                                onClick = onImportModelClick,
-                                modifier = Modifier
-                                    .height(38.dp)
-                                    .testTag("import_model_button"),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = ElegantDarkBorder,
-                                    contentColor = LavenderPrimary
-                                ),
-                                shape = CircleShape
-                            ) {
-                                Text(
-                                    text = if (uiState.isModelImported) "REPLACE" else "IMPORT MODEL",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-
-                            if (uiState.isModelImported) {
-                                IconButton(
-                                    onClick = onRemoveModelClick,
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .testTag("remove_model_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Remove Model",
-                                        tint = ErrorRed.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = "Android-Compatible Conformer 120M ONNX Model",
-                        fontSize = 11.5.sp,
-                        color = TextSecondary
-                    )
-                }
-
-                // 2. Tokenizer Status & Actions
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(ElegantDarkBackground, RoundedCornerShape(16.dp))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "TOKENIZER STATUS",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp,
-                                color = TextMuted
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            StatusBadge(
-                                isReady = uiState.isTokenizerImported,
-                                readyText = if (uiState.tokenizerVocabSize > 0) "Ready (${uiState.tokenizerVocabSize} tokens)" else "Ready",
-                                notReadyText = "Not Imported"
-                            )
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Button(
-                                onClick = onImportTokenizerClick,
-                                modifier = Modifier
-                                    .height(38.dp)
-                                    .testTag("import_tokenizer_button"),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = ElegantDarkBorder,
-                                    contentColor = LavenderPrimary
-                                ),
-                                shape = CircleShape
-                            ) {
-                                Text(
-                                    text = if (uiState.isTokenizerImported) "REPLACE" else "IMPORT TOKENIZER",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-
-                            if (uiState.isTokenizerImported) {
-                                IconButton(
-                                    onClick = onRemoveTokenizerClick,
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .testTag("remove_tokenizer_button")
-                                    ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Remove Tokenizer",
-                                        tint = ErrorRed.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = "SentencePiece Tokenizer (~239KB)",
-                        fontSize = 11.5.sp,
-                        color = TextSecondary
-                    )
-                }
-
+                // 1. Engine Status Banner
                 if (!uiState.isBothReady) {
-                    Button(
-                        onClick = onDownloadRequiredFilesClick,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = LavenderPrimary,
-                            contentColor = ElegantDarkBackground
-                        ),
-                        shape = RoundedCornerShape(12.dp),
+                    // Downloading or Not Ready Status
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(46.dp)
+                            .background(ElegantDarkBackground, RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = if (uiState.isDownloadingRequiredFiles) "ডাউনলোডিং required files (${uiState.downloadPercentage}%)"
-                            else "প্রয়োজনীয় ফাইল ডাউনলোড করুন",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "ইঞ্জিন স্ট্যাটাস",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextMuted
+                            )
+                            if (uiState.downloadError != null) {
+                                Text(
+                                    text = "ত্রুটি ঘটেছে",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ErrorRed
+                                )
+                            } else {
+                                Text(
+                                    text = "ডাউনলোডিং required files (${uiState.downloadPercentage}%)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = LavenderPrimary
+                                )
+                            }
+                        }
+
+                        if (uiState.downloadError == null) {
+                            LinearProgressIndicator(
+                                progress = { uiState.downloadProgressFraction.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = LavenderPrimary,
+                                trackColor = ElegantDarkBorder
+                            )
+                        } else {
+                            Button(
+                                onClick = onDownloadRequiredFilesClick,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = LavenderPrimary,
+                                    contentColor = ElegantDarkBackground
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth().height(40.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("পুনরায় ডাউনলোড করুন", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                } else {
+                    // Ready Status
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(ElegantDarkBackground, RoundedCornerShape(14.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = SuccessGreen,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "ভয়েস টাইপিং প্রস্তুত (১০০% অফলাইন)",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextPrimary
+                            )
+                        }
                     }
                 }
 
-                // 3. Floating Voice Typing Section (Wispr Flow style)
+                // 2. Floating Voice Typing Controls (Wispr Flow style overlay & accessibility)
                 FloatingVoiceTypingConfigCard(
                     isModelReady = uiState.isBothReady
                 )
 
-                // Info note
+                // 3. User Guide on How to Use Voice Typing
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(ElegantDarkBackground.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Lightbulb,
+                            contentDescription = null,
+                            tint = LavenderPrimary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "ব্যবহারের নিয়মাবলী",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = LavenderPrimary
+                        )
+                    }
+                    Text(
+                        text = "• উপরের ফ্লোটিং ভয়েস টাইপিং অপশনটি চালু করুন।\n• WhatsApp, Facebook, মেসেজ বা যেকোনো অ্যাপের টেক্সটবক্সে যান।\n• স্ক্রিনের ফ্লোটিং মাইক আইকনে ট্যাপ করে বাংলায় কথা বলুন, স্বয়ংক্রিয়ভাবে টাইপ হয়ে যাবে।",
+                        fontSize = 11.5.sp,
+                        color = TextSecondary,
+                        lineHeight = 17.sp
+                    )
+                }
+
+                // 4. Privacy Footer
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -306,7 +265,7 @@ fun ModelConfigDialog(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "100% On-Device Offline Inference • No Internet Required",
+                        text = "১০০% অন-ডিভাইস অফলাইন প্রসেসিং • নিরাপদ ও প্রাইভেট",
                         fontSize = 11.sp,
                         color = TextMuted
                     )

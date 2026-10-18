@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardVoice
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SaveAlt
@@ -251,19 +252,19 @@ fun SttScreen(
                     }
                 },
                 actions = {
-                    // 1. Model & Configuration Modal Button
+                    // 1. Voice Typing Settings Modal Button
                     IconButton(
                         onClick = { showModelConfigDialog = true },
                         modifier = Modifier.testTag("model_config_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Model Configuration",
+                            imageVector = Icons.Default.KeyboardVoice,
+                            contentDescription = "ভয়েস টাইপিং",
                             tint = if (uiState.isBothReady) LavenderPrimary else ErrorRed
                         )
                     }
 
-                    // 2. Overflow Menu (Diagnostics, Copy, Share, Save, Clear)
+                    // 2. Overflow Menu (Voice Typing, Diagnostics, Copy, Share, Save, Clear)
                     Box {
                         IconButton(
                             onClick = { showOptionsMenu = true },
@@ -282,9 +283,9 @@ fun SttScreen(
                             modifier = Modifier.background(ElegantDarkSurfaceCard)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("মডেল ও কনফিগারেশন", color = TextPrimary, fontSize = 13.sp) },
+                                text = { Text("ভয়েস টাইপিং", color = TextPrimary, fontSize = 13.sp) },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Settings, contentDescription = null, tint = LavenderPrimary, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.KeyboardVoice, contentDescription = null, tint = LavenderPrimary, modifier = Modifier.size(18.dp))
                                 },
                                 onClick = {
                                     showOptionsMenu = false

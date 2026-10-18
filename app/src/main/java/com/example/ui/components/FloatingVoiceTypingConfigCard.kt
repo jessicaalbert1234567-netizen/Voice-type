@@ -325,7 +325,7 @@ fun FloatingVoiceTypingConfigCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "ব্যবহারের পূর্বে মডেল ও টোকেনাইজার যুক্ত করুন",
+                        text = "ভয়েস টাইপিং ব্যবহারের পূর্বে প্রয়োজনীয় ফাইল লোড হওয়া প্রয়োজন",
                         fontSize = 10.5.sp,
                         color = TextMuted
                     )
